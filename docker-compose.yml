@@ -1,0 +1,30 @@
+services:
+  db:
+    image: gvenzl/oracle-xe:latest
+    environment:
+      - ORACLE_PASSWORD=hr
+      - APP_USER=hr
+      - APP_USER_PASSWORD=hr
+    ports:
+      - "1521:1521"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    # This allows the container to talk to Ollama on your Windows host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - DATABASE_URL=oracle+oracledb://hr:hr@db:1521/?service_name=XEPDB1
+      # Point the API to the host machine for Ollama
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    command: uv run uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
