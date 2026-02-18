@@ -1,38 +1,26 @@
-import os
 import re 
 from langchain_ollama import ChatOllama
 from config import settings
 
-
-# Inside Docker, this will be http://host.docker.internal:11434
-# Locally, this will default to http://localhost:11434
-
-
-OLLAMA_BASE_URL    = settings.ollama_base_url
-QWEN_CODER_MODEL   = settings.qwen_coder_model
-QWEN_ISTRUCT_MODEL = settings.qwen_instruct_model
+# Constants
+OLLAMA_BASE_URL = settings.ollama_base_url
+QWEN_CODER_MODEL = settings.qwen_coder_model
+QWEN_INSTRUCT_MODEL = settings.qwen_instruct_model
 
 
 
-
-def build_client() -> ChatOllama:
+def build_client(model: str | None) -> ChatOllama:
+    """Build ChatOllama client with specified model"""
+    model = model or QWEN_CODER_MODEL
     return ChatOllama(
-        model= QWEN_CODER_MODEL, 
+        model=model, 
         temperature=0,
         base_url=OLLAMA_BASE_URL
     )
-
-def build_translate_client() -> ChatOllama:
-
-    return ChatOllama(
-        model= QWEN_ISTRUCT_MODEL, 
-        temperature=0,
-        base_url=OLLAMA_BASE_URL
-    )
-
 
 
 def chat_once(prompt: str, client: ChatOllama) -> str:
+    """Send single prompt to LLM and return response"""
     try:
         resp = client.invoke(prompt) 
         content = getattr(resp, "content", "")
@@ -43,17 +31,13 @@ def chat_once(prompt: str, client: ChatOllama) -> str:
             )
         return content or ""
     except Exception as e:
-        print("Ollama call failed:", e)
-        return ""
+        print(f"Ollama call failed: {e}")
+        raise
+
 
 def translate_question(question: str, client: ChatOllama) -> str:
-    """
-    Use the LLM to translate any non-English question into clear English
-    suitable for SQL querying. If the question is already English, keep it as-is.
-    """
-
-    prompt = f"""
-You are a language detection and translation assistant.
+    """Translate non-English questions to English for SQL querying"""
+    prompt = f"""You are a language detection and translation assistant.
 
 Task:
 - If the question is already in English, return it unchanged.
@@ -69,23 +53,17 @@ English question:
 """
 
     english = chat_once(prompt, client).strip()
-    if not english or len(english) < 5:
-        print("LLM returned weak output, retrying...")
-        english = chat_once(prompt, client).strip()
-
-    print(f"Final English question: '{english}'")
+    print(f"Translated question: '{english}'")
     return english
-
-
-
-
-
 
 
 def generate_sql(question: str, schema: str, client: ChatOllama) -> str:
     """Generate SQL for SQLite database using DuckDB syntax"""
     
+    # Extract table names from schema
     table_names = re.findall(r'^(\w+) \(', schema, re.MULTILINE)
+    if not table_names:
+        raise ValueError("No tables found in schema")
     
     prompt = f"""You are a SQL expert using DuckDB syntax for SQLite databases.
 
@@ -104,18 +82,11 @@ SQL:"""
     
     sql = chat_once(prompt, client).strip()
     
-    # Clean response
+    # Clean markdown and extra formatting
     sql = re.sub(r'^```sql\s*|\s*```$|^sql\s*', '', sql, flags=re.IGNORECASE).strip(';').strip()
     
-    # Fix missing db. prefixes
+    # Ensure all tables have db. prefix
     for table in table_names:
         sql = re.sub(rf'\b(FROM|JOIN)\s+({table})\b', rf'\1 db.\2', sql, flags=re.IGNORECASE)
     
     return sql
-
-
-
-
-
-
-

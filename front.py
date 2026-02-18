@@ -15,10 +15,6 @@ DB_QUERY_URL  = f"{base_url}/database/query"
 DB_DELETE_URL = f"{base_url}/database"
 DB_SCHEMA_URL = f"{base_url}/database"
 
-# DB_UPLOAD_URL = "http://localhost:8000/database/upload"
-# DB_QUERY_URL  = "http://localhost:8000/database/query"
-# DB_DELETE_URL = "http://localhost:8000/database"
-# DB_SCHEMA_URL = "http://localhost:8000/database"
 
 
 def delete_database(file_id: str):

@@ -5,16 +5,17 @@ from contextlib import asynccontextmanager
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, UploadFile, Form, File
-from src.clients import build_client, build_translate_client
+from src.clients import build_client
 from src.UnifiedDatabaseLoader import query_data_base_file, UnifiedDatabaseLoader
 from config import settings
 from fastapi.middleware.cors import CORSMiddleware
 
 
-translate_client = build_translate_client()
-sql_client       = build_client()
-databases        = {}  # file_id -> {filename, path}
+translate_client = build_client(settings.qwen_instruct_model)
+sql_client = build_client(settings.qwen_coder_model)
+databases = {}  # file_id -> {filename, path}
 
+   
      
 
 @asynccontextmanager

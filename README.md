@@ -9,6 +9,9 @@ Convert natural language questions into SQL queries and execute them against SQL
 - View database schema
 - See generated SQL and results 
 
+
+![Architecture Diagram](assets/image.png)
+
 ## Prerequisites
 
 - Docker & Docker Compose
@@ -16,7 +19,9 @@ Convert natural language questions into SQL queries and execute them against SQL
 
 ```bash
 # Install and start Ollama
-ollama pull qwen
+ollama pull qwen_coder
+ollama pull qwen_istruct
+
 ollama serve
 ```
 
@@ -40,22 +45,6 @@ docker compose up -d
    - "Count orders by status"
 3. **View** the generated SQL and results
 
-## Docker Commands
-
-```bash
-# Start services
-docker compose up -d
-
-# View logs
-docker compose logs -f frontend
-docker compose logs -f api
-
-# Stop services
-docker compose down
-
-# Rebuild after changes
-docker compose up -d --build
-```
 
 ## Project Structure
 
