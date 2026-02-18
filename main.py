@@ -1,111 +1,94 @@
 # uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-import os
-
-from pydantic import BaseModel
-from typing import List, Dict, Any
-from sqlalchemy import create_engine
-from src.database import ask_db,extract_oracle_schema,translate_question
-from src.clients import build_client,build_translate_client
-from fastapi import FastAPI, HTTPException
-
-   
-
-# ====== FASTAPI APP ======
-app = FastAPI(title="Database Query API")
+import os, uuid, shutil, tempfile
+from pathlib import Path
+from contextlib import asynccontextmanager
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, HTTPException, UploadFile, Form, File
+from src.clients import build_client, build_translate_client
+from src.UnifiedDatabaseLoader import query_data_base_file, UnifiedDatabaseLoader
+from config import settings
+from fastapi.middleware.cors import CORSMiddleware
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+translate_client = build_translate_client()
+sql_client       = build_client()
+databases        = {}  # file_id -> {filename, path}
 
-if not DATABASE_URL:
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DATABASE_URL = f"oracle+oracledb://hr:hr@{DB_HOST}:1521/?service_name=XEPDB1"
+     
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    for fid in list(databases):
+        try:
+            os.remove(databases.pop(fid)["path"])
+        except Exception:
+            pass
+
+app = FastAPI(lifespan=lifespan)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["http://localhost:8501"] to be more specific
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+@app.post("/database/upload")
+async def upload_database(file: UploadFile = File(...)):
+    if not file.filename or Path(file.filename).suffix.lower() not in settings.db_extensions:
+        raise HTTPException(400, "Only .db, .sqlite, .sqlite3 files are supported")
 
-schema = extract_oracle_schema(engine=engine, schema="HR")
-client = build_client()
-translator_client = build_translate_client()
+    fid = uuid.uuid4().hex[:8]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        databases[fid] = {"filename": file.filename, "path": tmp.name}
 
-
-# Request/Response models
-class QueryRequest(BaseModel):
-    question: str
-
-
-class QueryResponse(BaseModel):
-    answer: str
-    sql_query: str
-    results: List[Dict[str, Any]]
+    return {"status": "success", "file_id": fid, "filename": file.filename}
 
 
+@app.post("/database/query")
+async def query_database(file_id: str = Form(...), question: str = Form(...)):
+    db = _get_db(file_id)
+    result_df, sql = query_data_base_file(db["path"], question, translate_client, sql_client)
+    result = result_df.replace({np.nan: None}).astype(object).to_dict("records") if hasattr(result_df, "to_dict") else result_df
+    return {"status": "success", "file_id": file_id, "filename": db["filename"], "question": question, "sql": sql, "answer": result}
 
 
-@app.post("/query", response_model=QueryResponse)
-async def process_query(request: QueryRequest):
-    """Main endpoint - processes natural language to SQL"""
-    
-    # check all dependencies
-    if engine is None or schema is None or client is None or translator_client is None:
-        raise HTTPException(
-            status_code=503, 
-            detail="Service not ready: Database schema or LLM clients not initialized"
-        )
-    
-    try:
-        question_translated = translate_question(request.question, translator_client)
-        
-        sql, message, rows_as_dict = ask_db(
-            question=question_translated, 
-            engine=engine, 
-            schema=schema, 
-            client=client
-        )
-        
-        return QueryResponse(
-            answer=message,
-            sql_query=sql,
-            results=rows_as_dict
-        )
-        
-    except Exception as e:
-        # Log the error for debugging in Docker logs
-        print(f"Error processing query: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+@app.delete("/database/{file_id}")
+async def delete_database(file_id: str):
+    if file_id in databases:
+        try:
+            os.remove(databases.pop(file_id)["path"])
+        except Exception:
+            pass
+    return {"status": "success"}
 
 
+@app.get("/database/{file_id}/schema")
+async def get_schema(file_id: str):
+    db = _get_db(file_id)
+    loader = UnifiedDatabaseLoader(db["path"])
+    schema = loader.get_schema()
+    loader.close()
+    return {"status": "success", "file_id": file_id, "filename": db["filename"], "schema": schema}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
 
-
-@app.get("/")
-async def root():
-    return {
-        "message": "Database Query API",
-        "endpoints": {
-            "POST /query": "Submit a natural language query"        
-        }
-    }
+def _get_db(file_id: str) -> dict:
+    if file_id not in databases or not Path(databases[file_id]["path"]).exists():
+        raise HTTPException(404, "Database not found")
+    return databases[file_id]
 
 
-
-
-
-
-
-
-
-
-# اعرض اسم القسم ومتوسط الرواتب فيه، لكن بس للأقسام اللي متوسط الرواتب أعلى من متوسط رواتب الشركة كلها
-# مين الموظفين اللي اشتغلوا في نفس الوظيفة لمدة أطول من متوسط مدة الوظيفة لكل الموظفين؟
-# اعرض الموظفين اللي تم تعيينهم قبل مديرهم
-# اعرض الأقسام اللي ما فيهاش أي موظف راتبه أعلى من متوسط راتب الشركة
-# اعرض متوسط المرتبات لكل Department، ورتّبهم من الأعلى للأقل.
-#مين الموظفين اللي مرتباتهم أعلى من متوسط المرتبات في القسم بتاعهم؟
-
-
+if __name__ == "__main__":
+    uvicorn.run("main:app", host=settings.api_host, port=settings.api_port, reload=True)
 
 
 

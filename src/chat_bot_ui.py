@@ -1,8 +1,16 @@
 import streamlit as st
 
 
-def render_hr_database_query():
-    TASK_TITLE = "HR Database Query"
+
+def rtl(text):
+    return f'<div style="direction: rtl; text-align: right;">{text}</div>'
+
+def ltr(text):
+    return f'<div style="direction: ltr; text-align: left;">{text}</div>'
+
+def render_query_upload_file():
+
+    TASK_TITLE = "Chat with your Database"
 
     # =============================================================================
     # Page Configuration
@@ -82,18 +90,6 @@ def render_hr_database_query():
             border-radius: 10px;
         }
         
-        /* Select Box Shadow */
-        .stSelectbox > div {
-            box-shadow: 0 2px 12px rgba(26, 129, 165, 0.15);
-            border-radius: 10px;
-        }
-        
-        /* Text Input Shadow */
-        .stTextInput > div {
-            box-shadow: 0 2px 12px rgba(26, 129, 165, 0.15);
-            border-radius: 10px;
-        }
-        
         /* Button Styling */
         .stButton > button {
             background: linear-gradient(135deg, #1A81A5 0%, #5AA7C0 100%);
@@ -104,16 +100,12 @@ def render_hr_database_query():
             font-weight: 600;
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(26, 129, 165, 0.3);
+            width: 100%;
         }
         
         .stButton > button:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(26, 129, 165, 0.5);
-        }
-        
-        /* Select Box Border */
-        .stSelectbox > div > div {
-            border-color: #5AA7C0;
         }
         
         /* Text Area Border */
@@ -122,75 +114,14 @@ def render_hr_database_query():
             border-radius: 8px;
         }
         
-        /* Text Input Border */
-        .stTextInput > div > div > input {
-            border-color: #5AA7C0;
-            border-radius: 8px;
-        }
-        
-        /* Divider */
-        .custom-divider {
-            height: 3px;
-            background: linear-gradient(90deg, #1A81A5, #5AA7C0, #1A81A5);
-            border: none;
-            border-radius: 2px;
-            margin: 20px 0;
-        }
-        
-        /* Success Box */
-        .success-box {
-            background-color: rgba(90, 167, 192, 0.2);
-            border: 1px solid #5AA7C0;
-            border-radius: 8px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(90, 167, 192, 0.25);
-        }
-        
         /* Info Box */
         .info-box {
             background-color: rgba(26, 129, 165, 0.1);
             border: 1px solid #1A81A5;
             border-radius: 8px;
             padding: 15px;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(26, 129, 165, 0.15);
-        }
-        
-        /* Error Box */
-        .error-box {
-            background-color: rgba(220, 53, 69, 0.1);
-            border: 1px solid #dc3545;
-            border-radius: 8px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.15);
-        }
-        
-        /* Card Box */
-        .card-box {
-            background-color: white;
-            border: 1px solid #e0e0e0;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
             margin: 10px 0;
-        }
-        
-        /* Footer */
-        .footer {
-            background: linear-gradient(135deg, #1A81A5 0%, #5AA7C0 100%);
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            margin-top: 40px;
-            box-shadow: 0 -4px 20px rgba(26, 129, 165, 0.2);
-        }
-        
-        .footer p {
-            color: white;
-            margin: 0;
-            font-size: 13px;
+            box-shadow: 0 4px 12px rgba(26, 129, 165, 0.15);
         }
         
         /* Section Title */
@@ -206,28 +137,6 @@ def render_hr_database_query():
         /* Hide Streamlit Branding */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <style>
-    /* أيقونة المستخدم */
-    [data-testid="stChatMessageAvatarUser"] {
-        background-color: #1e88e5 !important;
-        color: white !important;
-    }
-
-    /* أيقونة المساعد */
-    [data-testid="stChatMessageAvatarAssistant"] {
-        background-color: #64b5f6 !important;
-        color: white !important;
-        text-align: left;        
-    }
-
-    /* إطار الرسالة */
-    [data-testid="stChatMessage"] {
-        border-radius: 14px;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -247,10 +156,42 @@ def render_hr_database_query():
     </div>
     """, unsafe_allow_html=True)
 
+    # =============================================================================
+    # File Upload Section
+    # =============================================================================
+    st.markdown('<p class="section-title">Upload Database</p>', unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "Upload your database file",
+        type=['db', 'sqlite', 'sqlite3'],
+        help="Supported formats: .db, .sqlite, .sqlite3",
+        key="file_uploader"
+    )
+    
+    # Show active database info
+    if "file_id" in st.session_state and st.session_state.file_id:
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>Active Database:</strong> {st.session_state.get('last_uploaded_file', '')}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # =============================================================================
+    # Question Input Section
+    # =============================================================================
+    st.markdown('<p class="section-title">Ask Your Question</p>', unsafe_allow_html=True)
+    
+    question = st.text_area(
+        "Enter your question:",
+        placeholder="What would you like to know about your database?",
+        height=100,
+        key="question_input"
+    )
+    
+    return uploaded_file, question
 
-def rtl(text):
-    return f'<div style="direction: rtl; text-align: right;">{text}</div>'
 
-def ltr(text):
-    return f'<div style="direction: ltr; text-align: left;">{text}</div>'
+
+
+
 

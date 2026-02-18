@@ -1,70 +1,117 @@
+import pandas as pd
 import streamlit as st
 import requests
-from src.chat_bot_ui import render_hr_database_query
+from src.chat_bot_ui import render_query_upload_file
+from config import settings
+import os
 
-API_URL = "http://localhost:8000/query"
+# Get the base URL from the environment variable we added to docker-compose
+# Defaulting to localhost allows you to still run the code outside of Docker if needed
+base_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+# Updated Endpoints
+DB_UPLOAD_URL = f"{base_url}/database/upload"
+DB_QUERY_URL  = f"{base_url}/database/query"
+DB_DELETE_URL = f"{base_url}/database"
+DB_SCHEMA_URL = f"{base_url}/database"
+
+# DB_UPLOAD_URL = "http://localhost:8000/database/upload"
+# DB_QUERY_URL  = "http://localhost:8000/database/query"
+# DB_DELETE_URL = "http://localhost:8000/database"
+# DB_SCHEMA_URL = "http://localhost:8000/database"
+
+
+def delete_database(file_id: str):
+    try:
+        requests.delete(f"{DB_DELETE_URL}/{file_id}")
+    except Exception:
+        pass
+
+
+def fetch_schema(file_id: str) -> str | None:
+    try:
+        r = requests.get(f"{DB_SCHEMA_URL}/{file_id}/schema", timeout=30)
+        if r.status_code == 200:
+            return r.json().get("schema")
+    except Exception:
+        pass
+    return None
+
+
+def reset_session():
+    st.session_state.file_id = None
+    st.session_state.last_uploaded_file = None
+    st.session_state.schema = None
+
 
 def main():
-    render_hr_database_query()
-    # =============================
-    # User Input
-    # =============================
-    question = st.text_input("Enter your question:")
+    for key in ("file_id", "last_uploaded_file", "schema"):
+        st.session_state.setdefault(key, None)
 
-    # =============================
-    # Submit Button
-    # =============================
-    if st.button("Run Query"):
-        if not question.strip():
+    uploaded_file, question = render_query_upload_file()
+
+    # File removed
+    if uploaded_file is None and st.session_state.file_id:
+        delete_database(st.session_state.file_id)
+        reset_session()
+        st.rerun()
+
+    # New or changed file
+    if uploaded_file and uploaded_file.name != st.session_state.last_uploaded_file:
+        if st.session_state.file_id:
+            delete_database(st.session_state.file_id)
+            reset_session()
+
+        with st.spinner("Uploading database..."):
+            try:
+                r = requests.post(DB_UPLOAD_URL, files={"file": (uploaded_file.name, uploaded_file.getvalue())}, timeout=120)
+                if r.status_code == 200:
+                    st.session_state.file_id = r.json()["file_id"]
+                    st.session_state.last_uploaded_file = uploaded_file.name
+                    st.session_state.schema = fetch_schema(st.session_state.file_id)
+                    st.success(f"Database '{uploaded_file.name}' ready")
+                else:
+                    st.error(r.json().get("detail", "Upload failed"))
+            except requests.exceptions.Timeout:
+                st.error("Upload timed out")
+            except requests.exceptions.ConnectionError:
+                st.error("Cannot connect to server")
+
+    if st.session_state.schema:
+        with st.expander("Database Schema", expanded=False):
+            st.code(st.session_state.schema, language="sql")
+
+    if st.button("Ask", width="stretch"):
+        if not st.session_state.file_id:
+            st.warning("Please upload a database file first")
+        elif not question.strip():
             st.warning("Please enter a question")
         else:
-            with st.spinner("Querying database..."):
+            with st.spinner("Processing..."):
                 try:
-                    response = requests.post(
-                        API_URL,
-                        json={"question": question},
-                        timeout=60
-                    )
-
-                    if response.status_code != 200:
-                        st.error(f"API Error: {response.text}")
-                    else:
-                        data = response.json()
-
-                        # =============================
-                        # Display Answer
-                        # =============================
-                        st.success(data["answer"])
-
-                        # =============================
-                        # Display SQL
-                        # =============================
-                        st.subheader("Generated SQL")
-                        st.code(data["sql_query"], language="sql")
-
-                        # =============================
-                        # Display Results
-                        # =============================
-                        st.subheader("Results")
-                        if data["results"]:
-                            st.dataframe(data["results"])
+                    r = requests.post(DB_QUERY_URL, data={"file_id": st.session_state.file_id, "question": question}, timeout=120)
+                    if r.status_code == 200:
+                        result = r.json()
+                        st.divider()
+                        if result.get("sql"):
+                            st.code(result["sql"], language="sql")
+                        if isinstance(result.get("answer"), list) and result["answer"]:
+                            st.dataframe(pd.DataFrame(result["answer"]), width="stretch")
                         else:
-                            st.info("No results returned")
-
-                except requests.exceptions.RequestException as e:
-                    st.error(f"Connection error: {e}")
+                            st.info("No results found")
+                    elif r.status_code == 404:
+                        st.error("Database not found. Please re-upload your file.")
+                        reset_session()
+                        st.rerun()
+                    else:
+                        st.error(r.json().get("detail", "Query failed"))
+                except requests.exceptions.Timeout:
+                    st.error("Request timed out")
+                except requests.exceptions.ConnectionError:
+                    st.error("Cannot connect to server")
 
 
 if __name__ == "__main__":
     main()
 
-
-
-
-# اعرض اسم القسم ومتوسط الرواتب فيه، لكن بس للأقسام اللي متوسط الرواتب أعلى من متوسط رواتب الشركة كلها
-# مين الموظفين اللي اشتغلوا في نفس الوظيفة لمدة أطول من متوسط مدة الوظيفة لكل الموظفين؟
-# اعرض الموظفين اللي تم تعيينهم قبل مديرهم
-# اعرض الأقسام اللي ما فيهاش أي موظف راتبه أعلى من متوسط راتب الشركة
-# اعرض متوسط المرتبات لكل Department، ورتّبهم من الأعلى للأقل.
-#مين الموظفين اللي مرتباتهم أعلى من متوسط المرتبات في القسم بتاعهم؟
-
+    
