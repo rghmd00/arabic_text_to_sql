@@ -1,6 +1,8 @@
 import re 
 from langchain_ollama import ChatOllama
 from config import settings
+from src.sql_validate import validate_sql
+
 
 # Constants
 OLLAMA_BASE_URL = settings.ollama_base_url
@@ -20,31 +22,27 @@ def build_client(model: str | None) -> ChatOllama:
 
 
 def chat_once(prompt: str, client: ChatOllama) -> str:
-    """Send single prompt to LLM and return response"""
+    """Send single prompt to LLM and return response text."""
     try:
-        resp = client.invoke(prompt) 
-        content = getattr(resp, "content", "")
-        if isinstance(content, list):
-            content = "".join(
-                part.get("text", "") if isinstance(part, dict) else str(part)
-                for part in content
-            )
-        return content or ""
+        content = client.invoke(prompt).content
+        if isinstance(content, str):
+            return content
+        # Handle multimodal/chunked list responses gracefully
+        return "".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in content)
     except Exception as e:
         print(f"Ollama call failed: {e}")
         raise
 
 
+
 def translate_question(question: str, client: ChatOllama) -> str:
     """Translate non-English questions to English for SQL querying"""
-    prompt = f"""You are a language detection and translation assistant.
+    prompt = f"""You are a SQL-focused translation assistant.
 
 Task:
-- If the question is already in English, return it unchanged.
-- If the question is NOT in English, translate it into clear, natural English.
-- The final output MUST be a single English question suitable for SQL querying.
-- Do NOT explain what you did.
-- Do NOT add extra text.
+1. If the input is not in English, translate it to natural English.
+2. If the input is already in English, refine the grammar and terminology to ensure it is clear for a SQL query (e.g., pluralize nouns, use standard terms like "top" or "highest").
+3. Output ONLY the final English question. No explanations.
 
 Question:
 {question}
@@ -55,6 +53,8 @@ English question:
     english = chat_once(prompt, client).strip()
     print(f"Translated question: '{english}'")
     return english
+
+
 
 
 def generate_sql(question: str, schema: str, client: ChatOllama) -> str:
@@ -89,4 +89,11 @@ SQL:"""
     for table in table_names:
         sql = re.sub(rf'\b(FROM|JOIN)\s+({table})\b', rf'\1 db.\2', sql, flags=re.IGNORECASE)
     
+    
+    val_result = validate_sql(sql)
+    
+    if not val_result.get("is_valid"):
+        # Caught by the ValueError handler registered in main.py -> HTTP 400
+        raise ValueError(f"Security Guardrail Violation: {val_result.get('error')}")
+ 
     return sql

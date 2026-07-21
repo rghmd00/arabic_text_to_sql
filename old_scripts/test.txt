@@ -1,0 +1,195 @@
+docker pull container-registry.oracle.com/database/free:latest
+
+
+
+https://hub.docker.com/r/gvenzl/oracle-xe
+
+
+
+
+
+
+
+docker run -d \
+  --name oracle-xe \
+  -p 1521:1521 \
+  -p 5500:5500 \
+  -e ORACLE_PASSWORD=oracle \
+  gvenzl/oracle-xe:latest
+
+
+
+
+docker run -d --name oracle-xe \
+  -p 1521:1521 \
+  -e ORACLE_PASSWORD=hr \
+  -v oracle_data:/opt/oracle/oradata \
+  gvenzl/oracle-xe:latest
+
+
+
+
+
+
+
+# import pandas as pd
+
+# import streamlit as st
+# from sqlalchemy import create_engine
+# from src.sidebar import sidebar_schema
+# from src.chat_bot_ui import render_hr_database_query,rtl,ltr
+# from src.database import ask_db,create_db,extract_oracle_schema,translate_question
+# from src.clients import build_client,build_translate_client
+
+
+
+
+# @st.cache_resource
+# def get_engine():
+#     return create_engine(
+#         "oracle+cx_oracle://hr:hr@localhost:1521/?service_name=XEPDB1",
+#         pool_pre_ping=True
+#     )
+
+
+# def main():
+#     render_hr_database_query()
+#     engine = get_engine()
+#     print(f"Engine ID : {id(engine)}")
+
+#     if "db" not in st.session_state:
+#         db = create_db(engine=engine)
+#         schema = extract_oracle_schema(engine=engine, schema="HR")
+#         st.session_state.db = db
+#         st.session_state.schema = schema
+#         st.session_state.client = build_client()
+#         st.session_state.translator_client = build_translate_client()
+
+#     db = st.session_state.db
+#     schema = st.session_state.schema
+#     client = st.session_state.client
+#     translator_client = st.session_state.translator_client
+
+#     with st.sidebar:
+#         sidebar_schema(engine)
+
+    
+#     # Handle new user input
+#     user_input = st.chat_input("اكتب سؤالك هنا...")
+#     if user_input:
+#         # Show user message
+#         with st.chat_message("user"):
+#             st.markdown(rtl(user_input), unsafe_allow_html=True)
+
+#         # Process assistant response
+#         with st.chat_message("assistant"):
+#             try:
+#                 question_translated = translate_question(user_input, translator_client)
+#                 sql_query, raw_rows = ask_db(question_translated, db, schema, client)
+
+#                 # Normalize Oracle types before display
+#                 if isinstance(raw_rows, list) and len(raw_rows) > 0:
+#                     df = pd.DataFrame(raw_rows)
+#                     for col in df.select_dtypes(include=['object']):
+#                         df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
+#                 else:
+#                     df = None
+
+#                 # Display SQL - VERTICAL LTR FORMAT
+#                 st.markdown("### SQL")
+#                 st.code(
+#                     sql_query, 
+#                     language="sql",
+#                     line_numbers=True,
+#                     wrap_lines=True,
+#                     height=250
+#                 )
+#                 st.markdown("---")
+                
+#                 # Display results
+#                 st.markdown("### النتائج")
+#                 if df is not None:
+#                     st.dataframe(df, width="stretch", hide_index=True)
+#                 else:
+#                     st.code(str(raw_rows), language="python")
+
+#             except Exception as e:
+#                 err = f"[error] حدث خطأ غير متوقّع أثناء تشغيل البرنامج: {e}"
+#                 st.markdown(ltr(err), unsafe_allow_html=True)
+
+
+
+# if __name__ == "__main__":
+#     main()
+
+
+
+
+services:
+  db:
+    image: gvenzl/oracle-xe:latest
+    environment:
+      - ORACLE_PASSWORD=hr
+      - APP_USER=hr
+      - APP_USER_PASSWORD=hr
+    ports:
+      - "1522:1521"
+
+  api:
+    build: .
+    environment:
+      - DATABASE_URL=oracle+cx_oracle://hr:hr@db:1521/?service_name=XEPDB1
+    command: uv run uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+
+  # frontend:
+  #   build: .
+  #   environment:
+  #     - API_URL=http://api:8000/query
+  #   command: uv run streamlit run main.py --server.port 8501 --server.address 0.0.0.0
+  #   depends_on:
+  #     - api
+  #   ports:
+  #     - "8501:8501"
+
+
+
+
+
+
+
+
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    libaio1t64 || apt-get install -y libaio1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv using pip (avoids pulling the ghcr.io image)
+RUN pip install uv
+
+WORKDIR /app
+
+# Enable bytecode compilation
+ENV UV_COMPILE_BYTECODE=1
+
+# Install dependencies
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+
+# Copy the rest of the code
+COPY . .
+
+# Final sync
+RUN uv sync --frozen
+
+EXPOSE 8000
+EXPOSE 8501
+
+
+
